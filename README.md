@@ -1,5 +1,5 @@
 # Weir NS-3 simulator
-This is an NS-3 simulator for Weit. It is based on [the NS3 simulation of HPCC](https://github.com/alibaba-edu/High-Precision-Congestion-Control) and [the NS3 simulation of Floodgate](https://github.com/NASA-NJU/Floodgate-NS3). 
+This is an NS-3 simulator for Weir (Weir: Delay-based RNIC Cache Control Software Middleware for Scalable RDMA Networks). It is based on [the NS3 simulation of HPCC](https://github.com/alibaba-edu/High-Precision-Congestion-Control) and [the NS3 simulation of Floodgate](https://github.com/NASA-NJU/Floodgate-NS3). 
 
 ## Quick Start
 
