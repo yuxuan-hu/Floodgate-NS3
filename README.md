@@ -1,7 +1,5 @@
-# Floodgate NS-3 simulator
-This is an NS-3 simulator for Floodgate. It is based on [the NS3 simulation of HPCC](https://github.com/alibaba-edu/High-Precision-Congestion-Control) which also includes the implementation of DCQCN, TIMELY, DCTCP, PFC, ECN and Broadcom shared buffer switch. 
-
-If you have any questions, please contact us (wqingyue@qq.com or kxliu@smail.nju.edu.cn).
+# Weir NS-3 simulator
+This is an NS-3 simulator for Weit. It is based on [the NS3 simulation of HPCC](https://github.com/alibaba-edu/High-Precision-Congestion-Control) and [the NS3 simulation of Floodgate](https://github.com/NASA-NJU/Floodgate-NS3). 
 
 ## Quick Start
 
@@ -23,8 +21,16 @@ The direct command to run is:
 See `mix/README.md` for detailed examples of experiment config. 
 
 ## Important Files
-The core logic of Floodgate was written in following files:
+The core logic of Weir was written in following files:
 
-`point-to-point/model/switch-node.cc/h`: the node class for switch
+`src/point-to-point/model/qbb-net-device.cc/h`
 
-`point-to-point/model/switch-mmu.cc/h`: the mmu module of switch
+`src/point-to-point/model/rdma-hw.cc/h`
+
+Others are in following files:
+
+`src/point-to-point/model/settings.cc/h`
+
+`scratch/third.cc`
+
+`config-dcqcn.ini`
