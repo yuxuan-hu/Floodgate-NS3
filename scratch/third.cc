@@ -192,6 +192,9 @@ struct Flow{
 		}
 		qp_global = std::max(qp_id, qp_global) + 1;
 		flow_id = flow_index++;
+		/*[hyx]*/
+		// 记录一条flow开始的时间，在流的初始化的时候就会记录好的
+		// 因此，在后续建模中引入额外的PCIe带来的时延不需要考虑开始传输的时间了（rdma-hw或者qbb-net-device，效果应该是一样的），直接schedule加上额外时延即可
 		startTime = Seconds(p_startTime);
 		oracle_ns = Get_Oracle_Fct(src,dst,(uint32_t)size)*1e9;
 		oracle_rcv_ns = Get_Oracle_Rcv_Fct(src,dst,(uint32_t)size)*1e9;
@@ -1712,6 +1715,8 @@ void generate_poisson_fromcdf_incast_withQP() {
 		}
 	}
 
+	/*[hyx]*/
+	// full mesh 
 	// generate all-to-all QPs for poission traffic
 	poisson_qp_start = qp_id;
 	for (uint32_t i = 0; i < Settings::host_num; i++) {
@@ -1931,6 +1936,8 @@ void generate_poisson_incast_withQP() {
 			}
 		}
 	}
+	/*[hyx]*/
+	// full mesh connection: N x N x P
 	// generate all-to-all QPs for poission traffic
 	uint32_t poisson_qp_start = qp_id;
 	for (uint32_t i = 0; i < Settings::host_num; i++) {
@@ -2509,6 +2516,51 @@ int main(int argc, char *argv[])
 			}else if(key.compare("SWITCH_SYN_TIMEOUT_US") == 0){
 				conf >> Settings::switch_syn_timeout_us;
 				std::cout << "SWITCH_SYN_TIMEOUT_US\t\t\t\t" << Settings::switch_syn_timeout_us << '\n';
+			}else if(key.compare("RNIC_CACHE_MODE") == 0){
+				uint32_t rnic_cache_mode_int;
+				conf >> rnic_cache_mode_int;
+				if(rnic_cache_mode_int == 1){
+					Settings::use_rnic_cache = true;
+				}else{
+					Settings::use_rnic_cache = false;
+				}
+				std::cout << "RNIC_CACHE_MODE\t\t\t\t" << Settings::use_rnic_cache << '\n';
+			}else if(key.compare("XRC") == 0){
+				uint32_t xrc_int;
+				conf >> xrc_int;
+				if(xrc_int == 1){
+					Settings::use_xrc = true;
+				}else{
+					Settings::use_xrc = false;
+				}
+				std::cout << "XRC\t\t\t\t" << Settings::use_xrc << '\n';
+			}else if(key.compare("DCT") == 0){
+				uint32_t dct_int;
+				conf >> dct_int;
+				if(dct_int == 1){
+					Settings::use_dct = true;
+				}else{
+					Settings::use_dct = false;
+				}
+				std::cout << "DCT\t\t\t\t" << Settings::use_dct << '\n';
+			}else if(key.compare("WEIR") == 0){
+				uint32_t weir_int;
+				conf >> weir_int;
+				if(weir_int == 1){
+					Settings::use_weir = true;
+				}else{
+					Settings::use_weir = false;
+				}
+				std::cout << "WEIR\t\t\t\t" << Settings::use_weir << '\n';
+			}else if(key.compare("VALVE") == 0){
+				uint32_t valve_int;
+				conf >> valve_int;
+				if(valve_int == 1){
+					Settings::use_valve = true;
+				}else{
+					Settings::use_valve = false;
+				}
+				std::cout << "VALVE\t\t\t\t" << Settings::use_valve << '\n';
 			}
 
 			fflush(stdout);
@@ -3223,6 +3275,8 @@ int main(int argc, char *argv[])
 			portNumder[i] = 10000; // each host use port number from 10000
 	}
 
+	/*[hyx]*/	
+	// generate flows
 	/*--------------------------------- generate flows -------------------------------------*/
 	if (flow_from_file){
 		std::cout << "READ FROM FILE" << std::endl;
@@ -3254,6 +3308,8 @@ int main(int argc, char *argv[])
 			unfinished_rcv_flows.insert(curr.flow_id);
 			flows.pop();
 
+			/*[hyx]*/	
+			// 默认的pg（3）以及dport（100） 	
 			pg = 3;
 			dport = 100;
 

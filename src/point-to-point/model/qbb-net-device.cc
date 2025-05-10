@@ -53,6 +53,123 @@
 NS_LOG_COMPONENT_DEFINE("QbbNetDevice");
 
 namespace ns3 {
+
+	/*[hyx]*/
+	// MTT MPT建模
+	int generateMttMptProbability(){
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_int_distribution<> dis(1, 100);
+		int randomNum = dis(gen);
+		// 返回值为0表示MTT/MPT缓存不在网卡缓存中，需要重新获取，返回1表示在网卡缓存中，不需要重新获取
+		return (randomNum <= 2 * MTT_MPT_PROBABILITY) ? 0 : 1;
+	};
+	// for wqe cache miss
+	int generateMttMptProbability1(){
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_int_distribution<> dis(1, 100);
+		int randomNum = dis(gen);
+		// 返回值为0表示MTT/MPT缓存不在网卡缓存中，需要重新获取，返回1表示在网卡缓存中，不需要重新获取
+		return (randomNum <= 2 * MTT_MPT_PROBABILITY) ? 0 : 1;
+	};
+	// for qpc cache miss
+	int generateMttMptProbability2(){
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_int_distribution<> dis(1, 100);
+		int randomNum = dis(gen);
+		// 返回值为0表示MTT/MPT缓存不在网卡缓存中，需要重新获取，返回1表示在网卡缓存中，不需要重新获取
+		return (randomNum <= 1 * MTT_MPT_PROBABILITY) ? 0 : 1;
+	};
+
+	// WQE建模
+	void WqeCache::increment(){
+		wqe_num++;
+	}
+	void WqeCache::decrement(){
+		if(wqe_num > 0){
+			wqe_num--;
+		}
+	}
+	bool WqeCache::contains(){
+		return (wqe_num >= MAX_WQE_NUM)? false : true;
+	}
+
+	// QPC建模
+	bool QpcCache::contains(uint32_t value){
+		QpcInfo* cur = head;
+		while(cur != nullptr){
+			if(cur->qpc_id == value){
+				return true;
+			}
+			cur = cur->next;
+		}
+		return false;
+	}
+
+	void QpcCache::insert(uint32_t value){
+		if(QpcCache::contains(value)){
+			return;
+		}
+		if(!Settings::use_xrc){  // 没有使用 XRC ，仅是正常的 RC 
+			if(qpc_num < MAX_QPC_NUM){
+				qpc_num++;
+				QpcInfo* newQpc = new QpcInfo(value);
+				if(head == nullptr){
+					head = newQpc;
+					tail = newQpc;
+				}else{
+					tail->next = newQpc;
+					tail = newQpc;
+				}
+			}else{
+				std::random_device rd;
+				std::mt19937 gen(rd());
+				std::uniform_int_distribution<> dis(0, MAX_QPC_NUM-1);
+				uint32_t index = dis(gen);
+				QpcInfo* cur = head;
+				for(uint32_t i=0; i<index; i++){
+					cur = cur->next;
+				}
+				cur->qpc_id = value;
+			}
+		}else{  // 如果使用 XRC 模式，那么由于是共享接收队列，因此可以容纳的 QPC 数量增大，近似认为是 2 倍
+			// 在 insert 函数加入 XRC 建模之后，AddQueuePair、GetNxtPacket、DequeueAndTransmit、ReceiveAck函数会调用 insert 函数，因此基本无需额外修改
+			// AddQueuePair、GetNxtPacket、DequeueAndTransmit函数判断 contains 以及进行 insert ，已经考虑了带宽和时延，因此无需额外修改
+			// ReceiveAck 函数需要额外加入时延，这是由于共享接收队列会导致一定的延迟，但是总体上应该小于 PCIe 的时延，设置为 PCIe 时延的一半
+			if(qpc_num < MAX_QPC_NUM * 2){
+				qpc_num++;
+				QpcInfo* newQpc = new QpcInfo(value);
+				if(head == nullptr){
+					head = newQpc;
+					tail = newQpc;
+				}else{
+					tail->next = newQpc;
+					tail = newQpc;
+				}
+			}else{
+				std::random_device rd;
+				std::mt19937 gen(rd());
+				std::uniform_int_distribution<> dis(0, MAX_QPC_NUM*2-1);
+				uint32_t index = dis(gen);
+				QpcInfo* cur = head;
+				for(uint32_t i=0; i<index; i++){
+					cur = cur->next;
+				}
+				cur->qpc_id = value;
+			}
+		}
+	}
+
+	void QpcCache::print(){
+		QpcInfo* cur = head;
+		while(cur != nullptr){
+			std::cout<<"Qpc id: "<<cur->qpc_id<<std::endl;
+			cur = cur->next;
+		}
+		std::cout<<std::endl;
+	}
 	
 	uint32_t RdmaEgressQueue::ack_q_idx = 3;
 	// RdmaEgressQueue
@@ -213,6 +330,13 @@ namespace ns3 {
 		}
 		m_pfc_on_queue = true;
 
+		/*[hyx]*/
+		// for DCT
+		if(Settings::use_dct){
+			// init 初始值只会影响第一次的数据传输，对后续并没有影响，因此可以设置为 0
+			last_qIndex = 0;
+		}
+
 		m_rdmaEQ = CreateObject<RdmaEgressQueue>();
 	}
 
@@ -251,21 +375,102 @@ namespace ns3 {
 		if (m_node->GetNodeType() == 0){
 			int qIndex = m_rdmaEQ->GetNextQindex(m_paused, m_pfc_on_queue);
 			if (qIndex != -1024){
+
+				/*[hyx]*/
+				double delay = 0;
+				if(Settings::use_rnic_cache){
+					// for DCT
+					// DCT 中假定为在传输的时候进行延迟，这是由于QP切换造成的，但是，对于接收数据的时候我们默认为收到ACK的时候QP不会切换，这是由于数据传输完成才会切换QP，因此只有传输数据时切换QP会造成时延
+					if(Settings::use_dct){
+						if(qIndex == last_qIndex){
+							// QP 没有发生切换
+							delay += 0;
+						}else{
+							// QP 发生切换
+							delay += 2 * PCIeDelay / 1e6;  // us -> s
+							// 额外的 PCIe 时延
+						}
+						// 完成 QP 的切换
+						last_qIndex = qIndex;
+						// update qp cache
+					}
+
+					// mtt mpt
+					int mtt_mpt_probability = generateMttMptProbability();
+					if(mtt_mpt_probability == 0){
+						delay += PCIeDelay / 1e6;  // us -> s
+					}else{
+						delay += 0;	 // no delay
+					}
+					// wqe
+					if(wqecache.contains()){
+						delay += 0;
+					}else{
+						delay += PCIeDelay / 1e6;
+						// extra pcie delay for mtt mpt related with wqe
+						int mtt_mpt_probability1 = generateMttMptProbability1();
+						if(mtt_mpt_probability1 == 0){
+							delay += PCIeDelay / 1e6;  // us -> s
+						}else{
+							delay += 0;	 // no delay
+						}
+					}
+					// qpc
+					// for DCT
+					if(!Settings::use_dct){
+						// DCT 不会造成 qpc 的丢失，因此只有非 DCT 的方案才需要考虑 qpc cache 是否在 list 之中的情况    
+						if(qpccache.contains(qIndex)){
+							delay += 0;
+						}else{
+							delay += PCIeDelay / 1e6;
+							// extra pcie delay for mtt mpt related with qpc
+							int mtt_mpt_probability2 = generateMttMptProbability2();
+							if(mtt_mpt_probability2 == 0){
+								delay += PCIeDelay / 1e6;  // us -> s
+							}else{
+								delay += 0;	 // no delay
+							}
+						}
+					}
+				}
+
 				if (qIndex == -1){ // high prio
 					p = m_rdmaEQ->DequeueQindex(qIndex);
 					m_traceDequeue(p, 0);
 //					std::cout << "host " << m_node->m_id << " " << Simulator::Now().GetNanoSeconds() << " 0" << std::endl;
-					TransmitStart(p);
+
+					/*[hyx]*/
+					if(Settings::use_rnic_cache){
+						TransmitStartWithDelay(p, delay);
+					}else{
+						TransmitStart(p);
+					}
+
 					return;
 				}
 				// a qp dequeue a packet
 				Ptr<RdmaQueuePair> lastQp = m_rdmaEQ->GetQp(qIndex);
 				p = m_rdmaEQ->DequeueQindex(qIndex);
+				/*[hyx]*/
+				// update rnic cache
+				if(Settings::use_rnic_cache){
+					// mtt mpt nothing to do
+					// wqe add 1
+					wqecache.increment();
+					// qpc insert qpid for lastQp
+					qpccache.insert(lastQp->m_qpid);
+				}
 
 				// transmit
 				m_traceQpDequeue(p, lastQp);
 //				std::cout << "host " << m_node->m_id << " " << Simulator::Now().GetNanoSeconds() << " 1" << std::endl;
-				TransmitStart(p);
+
+				/*[hyx]*/
+				if(Settings::use_rnic_cache){
+					TransmitStartWithDelay(p, delay);
+				}else{
+					TransmitStart(p);
+				}
 
 				// update for the next avail time
 				m_rdmaPktSent(lastQp, p, m_tInterframeGap);
@@ -550,6 +755,36 @@ namespace ns3 {
 		return result;
 	}
 
+	/*[hyx]*/
+	// transmit with delay
+	bool
+		QbbNetDevice::TransmitStartWithDelay(Ptr<Packet> p, double delay)
+	{
+		NS_LOG_FUNCTION(this << p);
+		NS_LOG_LOGIC("UID is " << p->GetUid() << ")");
+		//
+		// This function is called to start the process of transmitting a packet.
+		// We need to tell the channel that we've started wiggling the wire and
+		// schedule an event that will be executed when the transmission is complete.
+		//
+		NS_ASSERT_MSG(m_txMachineState == READY, "Must be READY to transmit");
+		m_txMachineState = BUSY;
+		m_currentPkt = p;
+		m_phyTxBeginTrace(m_currentPkt);
+		// add delay to txTime
+		Time txTime = Seconds(delay + m_bps.CalculateTxTime(p->GetSize()));
+		Time txCompleteTime = txTime + m_tInterframeGap;
+		NS_LOG_LOGIC("Schedule TransmitCompleteEvent in " << txCompleteTime.GetSeconds() << "sec");
+		Simulator::Schedule(txCompleteTime, &QbbNetDevice::TransmitComplete, this);
+
+		bool result = m_channel->TransmitStart(p, this, txTime);
+		if (result == false)
+		{
+			m_phyTxDropTrace(p);
+		}
+		return result;
+	}
+
 	Ptr<Channel>
 		QbbNetDevice::GetChannel(void) const
 	{
@@ -567,8 +802,26 @@ namespace ns3 {
    void QbbNetDevice::ReassignedQp(Ptr<RdmaQueuePair> qp){
 	   DequeueAndTransmit();
    }
+   /*[hyx]*/
+   // 对 xrc 进行建模    
    void QbbNetDevice::TriggerTransmit(void){
-	   DequeueAndTransmit();
+		if(!Settings::use_xrc){
+	   		DequeueAndTransmit();
+		}else{
+			// 如果使用了 xrc 模式，那么增加 PCIe 延迟的一半作为共享接收队列处理的时延大小
+			Simulator::Schedule(Seconds((static_cast<double>(PCIeDelay)/2)/1e6), &QbbNetDevice::DequeueAndTransmit, this);
+		}
+   }
+
+   /*[hyx]*/
+   void QbbNetDevice::TriggerTransmitWithDelay(void){
+		// DequeueAndTransmit();
+		if(!Settings::use_xrc){
+			Simulator::Schedule(Seconds(static_cast<double>(PCIeDelay)/1e6), &QbbNetDevice::DequeueAndTransmit, this);
+		}else{
+			// 如果使用了 xrc 模式，那么增加 PCIe 延迟的一半作为共享接收队列处理的时延大小
+			Simulator::Schedule(Seconds((static_cast<double>(PCIeDelay)*1.5)/1e6), &QbbNetDevice::DequeueAndTransmit, this);
+		}
    }
 
 	void QbbNetDevice::SetQueue(Ptr<BEgressQueue> q){

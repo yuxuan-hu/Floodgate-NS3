@@ -46,6 +46,14 @@ namespace ns3{
 	uint32_t Settings::free_token = 9;
 	uint32_t Settings::max_bdp;
 
+	/*[hyx]*/
+	// for rnic cache resource
+	bool Settings::use_rnic_cache = false;
+	bool Settings::use_xrc = false;
+	bool Settings::use_dct = false;
+	bool Settings::use_weir = false;
+	bool Settings::use_valve = false; 
+
 	// for floodgate
 	std::map<uint32_t, uint32_t> Settings::hostIp2IdMap;
 	std::map<uint32_t, uint32_t> Settings::hostId2IpMap;

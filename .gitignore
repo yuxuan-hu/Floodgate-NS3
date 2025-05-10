@@ -49,6 +49,7 @@ Debug/
 /.cproject
 .lock-waf_*_build
 .waf*
+waf3-1.7.11-edc6ccb516c5e3f9b892efc9f53a610f/
 
 #log
 *.log

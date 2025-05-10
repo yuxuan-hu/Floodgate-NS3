@@ -25,6 +25,10 @@ struct RdmaInterfaceMgr{
 	}
 };
 
+/*[hyx]*/
+// 随机分配一些PCIe的额外带宽
+uint64_t GetRandomPCIeBW();
+
 class RdmaHw : public Object {
 public:
 

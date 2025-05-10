@@ -81,6 +81,15 @@ public:
 	static uint32_t max_switch_length;
 	static uint32_t max_voq_length;
 
+	/*[hyx]*/
+	// for rnic cache resource
+	static bool use_rnic_cache;
+	static bool use_xrc;
+	static bool use_dct;
+	static bool use_weir;
+	static bool use_valve;
+	// static bool use_...;
+
 	/*---------------------For Floodgate-------------*/
 	/**
 	 * The map between hosts' IP and ID

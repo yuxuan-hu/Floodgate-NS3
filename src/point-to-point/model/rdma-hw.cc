@@ -16,6 +16,33 @@
 
 namespace ns3{
 
+/*[hyx]*/
+// random extra pcie bandwidth
+uint64_t GetRandomPCIeBW(){
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_int_distribution<> dis(1, 100);
+
+	int rnum = dis(gen);
+	if(rnum <= 12){
+		return 0;  // 12% probability
+	}
+
+	int equal_prob = (rnum - 12) % 4;
+	switch(equal_prob){
+		case 0:
+			return 1;  // 22% probability
+		case 1:
+			return 2;
+		case 2:
+			return 3;
+		case 3:
+			return 4;
+		default:
+			return 0;  // 0% probability, should not reach here
+	}
+};
+
 TypeId RdmaHw::GetTypeId (void)
 {
 	static TypeId tid = TypeId ("ns3::RdmaHw")
@@ -262,6 +289,12 @@ void RdmaHw::AddQueuePair(uint64_t size, uint16_t pg, Ipv4Address sip, Ipv4Addre
 		m_nic[nic_idx].qpGrp->AddQp(qp);
 		uint64_t key = GetQpKey(sport, pg);
 		m_qpMap[key] = qp;
+
+		/*[hyx]*/
+		// 添加qpid，只有在使用rnic cache时才会添加
+		if(Settings::use_rnic_cache){
+			m_nic[nic_idx].dev->qpccache.insert(qpid);
+		}
 
 		// set init variables
 		DataRate m_bps = m_nic[nic_idx].dev->GetDataRate();
@@ -576,6 +609,25 @@ int RdmaHw::ReceiveAck(Ptr<Packet> p, CustomHeader &ch){
 		return 0;
 	}
 
+	/*[hyx]*/
+	// 收到ack，数据传输完成，wqe数量减一
+	bool delay = false;
+	if(Settings::use_rnic_cache){
+		uint32_t nic_idx = GetNicIdxOfQp(qp);
+		// mtt mpt nothing to do
+		// wqe
+		m_nic[nic_idx].dev->wqecache.decrement();
+		// qpc
+		// for DCT
+		if(!Settings::use_dct){
+			// DCT 不会造成 qpc 的丢失，因此只有非 DCT 的方案才需要考虑 qpc cache 是否在 list 之中的情况
+			if(!m_nic[nic_idx].dev->qpccache.contains(qp->m_qpid)){
+				m_nic[nic_idx].dev->qpccache.insert(qp->m_qpid);
+				delay = true;
+			}
+		}
+	}
+
 	bool isLastACK = false;
 	LastPacketTag lastTag;
 	isLastACK = p->PeekPacketTag(lastTag);
@@ -657,6 +709,17 @@ int RdmaHw::ReceiveAck(Ptr<Packet> p, CustomHeader &ch){
 			HandleAckDctcp(qp, p, ch);
 	}
 	// ACK may advance the on-the-fly window, allowing more packets to send
+	/*[hyx]*/
+	// xrc 在共享接收队列的建模不在此处完成，否则会产生过多的修改，直接放在 TriggerTransmitWithDelay 以及 TriggerTransmit 中完成 （qbb-net-device.cc file）
+	// 此处只需要判断是否需要delay即可
+	if(Settings::use_rnic_cache){
+		if(delay){
+			dev->TriggerTransmitWithDelay();
+		}else{
+			dev->TriggerTransmit();
+		}
+		return 0;
+	}
 	dev->TriggerTransmit();
 	return 0;
 }
@@ -839,6 +902,67 @@ Ptr<Packet> RdmaHw::GetNxtPacket(Ptr<RdmaQueuePair> qp){
 	if (seq + m_mtu >= qp->m_size){
 		is_last = true;
 		payload_size = qp->m_size - seq;
+	}
+
+	/*[hyx]*/
+	// 连接可扩展问题主要是出现在发送数据，因此应该在发送数据这部分引入额外的带宽损失，接收数据的带宽与发送数据的带宽无关
+	// uint64_t extra_pcie_bw = 0;  // Gbps
+	if(Settings::use_rnic_cache){
+		uint64_t extra_pcie_bw = 0;
+		// mtt mpt
+		int mtt_mpt_probability = generateMttMptProbability();
+		if(mtt_mpt_probability == 0){
+			extra_pcie_bw += 4;
+			// random pcie bw
+			uint64_t random_pcie_bw = GetRandomPCIeBW();
+			extra_pcie_bw += random_pcie_bw;
+		}else{
+			extra_pcie_bw += 0;
+		}
+		// wqe （首先需要获取 nic idx ）
+		uint32_t nic_idx = GetNicIdxOfQp(qp);
+		if(m_nic[nic_idx].dev->wqecache.contains()){
+			extra_pcie_bw += 0;
+		}else{
+			extra_pcie_bw += 8;
+			// random pcie bw
+			uint64_t random_pcie_bw = GetRandomPCIeBW();
+			extra_pcie_bw += random_pcie_bw;
+			// extra pcie bw of mtt mpt for wqe cache miss
+			int mtt_mpt_probability1 = generateMttMptProbability1();
+			if(mtt_mpt_probability1 == 0){
+				extra_pcie_bw += 4;
+			}else{
+				extra_pcie_bw += 0;
+			}
+		}
+		// qpc
+		// for DCT
+		if(!Settings::use_dct){
+			// DCT 不会造成 qpc 的丢失，因此只有非 DCT 的方案才需要考虑 qpc cache 是否在 list 之中的情况
+			if(m_nic[nic_idx].dev->qpccache.contains(qp->m_qpid)){
+				extra_pcie_bw += 0;
+			}else{
+				extra_pcie_bw += 6;
+				// random pcie bw
+				uint64_t random_pcie_bw = GetRandomPCIeBW();
+				extra_pcie_bw += random_pcie_bw;
+				// extra pcie bw of mtt mpt for qpc cache miss
+				int mtt_mpt_probability2 = generateMttMptProbability2();
+				if(mtt_mpt_probability2 == 0){
+					extra_pcie_bw += 4;
+				}else{
+					extra_pcie_bw += 0;
+				}
+			}
+		}
+
+		// 计算并更新新的速率
+		uint64_t qp_new_rate = qp->m_rate.GetBitRate() - extra_pcie_bw * 1024 * 1024 * 1024;
+		DataRate new_rate = DataRate(qp_new_rate);  // bps
+		// 改变发送数据的速率
+		ChangeRate(qp, new_rate);
+
 	}
 
 	Ptr<Packet> p = Create<Packet> (payload_size);

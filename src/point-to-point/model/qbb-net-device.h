@@ -33,8 +33,67 @@
 #include <vector>
 #include<map>
 #include <ns3/rdma.h>
+/*[hyx]*/
+// 导入随机种子
+#include <random>
 
 namespace ns3 {
+
+/*[hyx]*/
+// PCIe相关参数
+#define PCIeDelay 1  // us
+#define PCIeBW 128  // Gbps
+
+// MTT/MPT建模（数据传输相关），以概率的方式丢失表项
+#define MTT_MPT_PROBABILITY 10  // 10%的概率丢失表项
+int generateMttMptProbability();
+// for wqe cache miss
+int generateMttMptProbability1();
+// for qpc cache miss
+int generateMttMptProbability2();
+
+// WQE建模，以Mellanox CX6为例，（经过测试）网卡最多可以容纳4096个WQE，超出的话随机丢弃
+#define MAX_WQE_NUM 4096
+// 为了简化模型，这里假设Inflight WQE数量大于MAX_WQE_NUM的时候，直接丢弃，并且不区分具体的WQE
+class WqeCache
+{
+  private:
+    uint32_t wqe_num;
+  public:
+    WqeCache(): wqe_num(0) {};
+    ~WqeCache(){};
+    void increment();
+    void decrement();
+    bool contains();
+};
+
+// 构建QPC缓存资源的建模，以Mellanox CX6（100Gbps）为例，网卡最多可以容纳1024个QPC，超出的话随机丢弃
+#define MAX_QPC_NUM 1024
+struct QpcInfo
+{
+	uint32_t qpc_id;
+  QpcInfo* next;
+  QpcInfo(uint32_t value): qpc_id(value), next(nullptr) {}
+};
+class QpcCache
+{
+  private:
+    QpcInfo* head;
+    QpcInfo* tail;
+    uint32_t qpc_num;
+  public:
+    QpcCache(): head(nullptr), tail(nullptr), qpc_num(0) {};
+    ~QpcCache(){
+      while(head != nullptr){
+        QpcInfo* temp = head;
+        head = head->next;
+        delete temp;
+      }
+    };
+    bool contains(uint32_t value);
+    void insert(uint32_t value);
+    void print();
+};
 
 class RdmaEgressQueue : public Object{
 public:
@@ -78,6 +137,14 @@ public:
   static const uint32_t fCnt = 128; // Max number of flows on a NIC, for TX and RX respectively. TX+RX=fCnt*2
   static const uint32_t maxHop = 1; // Max hop count in the network. should not exceed 16 
 
+
+	/*[hyx]*/
+	// 网卡缓存资源建模
+	WqeCache wqecache;
+	QpcCache qpccache;
+
+  // for DCT
+  int last_qIndex;
 
   /**
    * The queues for each priority class.
@@ -137,6 +204,8 @@ public:
    void NewQp(Ptr<RdmaQueuePair> qp);
    void ReassignedQp(Ptr<RdmaQueuePair> qp);
    void TriggerTransmit(void);
+   /*[hyx]*/
+   void TriggerTransmitWithDelay(void);
 
 	void SendPfc(uint32_t qIndex, uint32_t type); // type: 0 = pause, 1 = resume
 	void SendSwitchACK(SwitchACKTag acktag, uint32_t src, uint32_t dst);
@@ -154,6 +223,9 @@ protected:
 	//Ptr<Node> m_node;
 
   bool TransmitStart (Ptr<Packet> p);
+  /*[hyx]*/
+  // transmit with delay 
+  bool TransmitStartWithDelay (Ptr<Packet> p, double delay);
   
   virtual void DoDispose(void);
 
