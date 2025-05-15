@@ -1101,6 +1101,8 @@ void getCdfFromFile(uint32_t type){
 		distFileName = std::string("distribution/Facebook_WebServerDist_IntraCluster.txt");//web sever
 	else if(type==14)
 		distFileName = std::string("distribution/Facebook_CacheFollowerDist_IntraCluster.txt");//Cache Follower
+	else if(type==12)
+	    distFileName = std::string("distribution/AliStorage2019.txt");  // AliStorage2019
 	else
 		NS_FATAL_ERROR("no such workload!");
 
@@ -2640,6 +2642,13 @@ int main(int argc, char *argv[])
 		IntHeader::mode = 1;
 	else if (cc_mode == 3) // hpcc, use int
 		IntHeader::mode = 0;
+	else if (cc_mode == 1){  // dcqcn, use ts for rtt (delay) calculation
+		if(Settings::use_weir){	 // weir mode 
+			IntHeader::mode = 1;
+		}else{
+			IntHeader::mode = 5;
+		}
+	}
 	else // others, no extra header
 		IntHeader::mode = 5;
 
