@@ -40,6 +40,10 @@
 namespace ns3 {
 
 /*[hyx]*/
+// for weir
+#define INC 5  // ns
+#define DEC 5
+
 // PCIe相关参数
 #define PCIeDelay 1  // us
 #define PCIeBW 128  // Gbps
@@ -97,6 +101,9 @@ class QpcCache
 
 class RdmaEgressQueue : public Object{
 public:
+  // for weir
+  uint64_t total_active_qp_num;
+
 	static const uint32_t qCnt = 8;
 	static uint32_t ack_q_idx;
 	uint32_t m_mtu;

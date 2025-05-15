@@ -80,6 +80,14 @@ struct RdmaOperationLastActionTimeCMP
 
 class RdmaQueuePair : public Object {
 public:
+	/*[hyx]*/
+	//  for weir
+	uint64_t pre_rtt;  // delay
+	uint64_t cur_rtt;
+	uint64_t base_gap;  // ns
+	uint64_t pre_gap;
+	uint64_t cur_gap;
+
 	// wqy
 	uint32_t m_qpid;
 	uint32_t m_msgSeq;

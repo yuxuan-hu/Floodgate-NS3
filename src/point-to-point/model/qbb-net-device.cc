@@ -186,6 +186,9 @@ namespace ns3 {
 	}
 
 	RdmaEgressQueue::RdmaEgressQueue(){
+		// for weir
+		total_active_qp_num = 0;
+
 		m_rrlast = 0;
 		m_qlast = 0;
 		m_mtu = 1000;
@@ -217,8 +220,21 @@ namespace ns3 {
 
 		// no pkt in highest priority queue, do rr for each qp
 		uint32_t fcount = m_qpGrp->GetN();
+		/*[Active QP Monitor]*/
+		// init to 0
+		if(Settings::use_weir){
+			total_active_qp_num = 0;
+		}
+
 		for (qIndex = 1; qIndex <= fcount; qIndex++){
 			Ptr<RdmaQueuePair> qp = m_qpGrp->Get((qIndex + m_rrlast) % fcount);
+			// for weir
+			if(Settings::use_weir){
+				if(qp->GetBytesLeft() > 0){
+					total_active_qp_num++;
+				}
+			}
+
 			uint32_t pfc_fine = qp->m_pg;
 			if (!pfc_queue) pfc_fine = qp->m_dst;
 			if (!paused[pfc_fine] && qp->GetBytesLeft() > 0 && !qp->IsWinBound()){
@@ -379,6 +395,25 @@ namespace ns3 {
 				/*[hyx]*/
 				double delay = 0;
 				if(Settings::use_rnic_cache){
+					// for Weir
+					/*[Rate Limiter]*/
+					if(Settings::use_weir){
+						Ptr<RdmaQueuePair> lastQp = m_rdmaEQ->GetQp(qIndex);
+						if(lastQp->cur_rtt > lastQp->pre_rtt){	// Current RTT > Previous RTT => increase sending gap
+							uint64_t ActiveQpNum = m_rdmaEQ->total_active_qp_num;
+							lastQp->cur_gap = (ActiveQpNum >> 9) * INC + lastQp->pre_gap;
+							lastQp->cur_gap = (lastQp->cur_gap > (lastQp->base_gap + 12 * INC)) ? (lastQp->base_gap + 12 * INC) : lastQp->cur_gap;
+							lastQp->pre_gap = lastQp->cur_gap;
+						}else{	// Current RTT <= Previous RTT => decrease sending gap
+							uint64_t ActiveQpNum = m_rdmaEQ->total_active_qp_num;
+							lastQp->cur_gap = (lastQp->pre_gap > ((ActiveQpNum >> 9) * DEC)) ? (lastQp->pre_gap - ((ActiveQpNum >> 9) * DEC)) : 0;
+							lastQp->pre_gap = lastQp->cur_gap;
+						}
+
+						// update wqe posting delay 
+						delay += lastQp->cur_gap / 1e9;  // ns -> s
+					}
+
 					// for DCT
 					// DCT 中假定为在传输的时候进行延迟，这是由于QP切换造成的，但是，对于接收数据的时候我们默认为收到ACK的时候QP不会切换，这是由于数据传输完成才会切换QP，因此只有传输数据时切换QP会造成时延
 					if(Settings::use_dct){
@@ -403,6 +438,8 @@ namespace ns3 {
 						delay += 0;	 // no delay
 					}
 					// wqe
+				if(!Settings::use_weir){  // for weir
+				// 没有使用 weir 才需要考虑 wqe cache ，使用 weir 之后，认为 wqe cache 很少，可以忽略不记其 cache miss  
 					if(wqecache.contains()){
 						delay += 0;
 					}else{
@@ -415,6 +452,7 @@ namespace ns3 {
 							delay += 0;	 // no delay
 						}
 					}
+				}
 					// qpc
 					// for DCT
 					if(!Settings::use_dct){
@@ -456,7 +494,9 @@ namespace ns3 {
 				if(Settings::use_rnic_cache){
 					// mtt mpt nothing to do
 					// wqe add 1
+				if(!Settings::use_weir){
 					wqecache.increment();
+				}
 					// qpc insert qpid for lastQp
 					qpccache.insert(lastQp->m_qpid);
 				}

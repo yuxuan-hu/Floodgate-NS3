@@ -191,6 +191,16 @@ TypeId RdmaQueuePair::GetTypeId (void)
 }
 
 RdmaQueuePair::RdmaQueuePair(uint16_t pg, Ipv4Address _sip, Ipv4Address _dip, uint16_t _sport, uint16_t _dport){
+	/*[hyx]*/
+	// for weir
+	pre_rtt = 0;
+	cur_rtt = 0;
+	base_gap = 50;  // ns
+	// \left(\frac{100000000000}{1500\cdot8}\right)^{-1}\cdot1000000000=120
+	// for 100000000000 bps, 1500 bytes, 8 bits/byte, 1000000000 ns/sec
+	pre_gap = 50;
+	cur_gap = 50;
+
 	m_isTestFlow = false;
 	m_last_print_rate = 0;
 	startTime = Simulator::Now();

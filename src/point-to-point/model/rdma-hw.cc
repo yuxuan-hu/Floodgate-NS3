@@ -613,10 +613,20 @@ int RdmaHw::ReceiveAck(Ptr<Packet> p, CustomHeader &ch){
 	// 收到ack，数据传输完成，wqe数量减一
 	bool delay = false;
 	if(Settings::use_rnic_cache){
+		// for weir
+		/*[Delay Monitor]*/
+		if(Settings::use_weir){  // weir mode after receiving ack
+			uint64_t rtt = Simulator::Now().GetTimeStep() - ch.ack.ih.ts;
+			qp->pre_rtt = qp->cur_rtt;
+			qp->cur_rtt = rtt;
+		}
+
 		uint32_t nic_idx = GetNicIdxOfQp(qp);
 		// mtt mpt nothing to do
 		// wqe
+	if(!Settings::use_weir){
 		m_nic[nic_idx].dev->wqecache.decrement();
+	}
 		// qpc
 		// for DCT
 		if(!Settings::use_dct){
@@ -921,6 +931,7 @@ Ptr<Packet> RdmaHw::GetNxtPacket(Ptr<RdmaQueuePair> qp){
 		}
 		// wqe （首先需要获取 nic idx ）
 		uint32_t nic_idx = GetNicIdxOfQp(qp);
+	if(!Settings::use_weir){
 		if(m_nic[nic_idx].dev->wqecache.contains()){
 			extra_pcie_bw += 0;
 		}else{
@@ -936,6 +947,7 @@ Ptr<Packet> RdmaHw::GetNxtPacket(Ptr<RdmaQueuePair> qp){
 				extra_pcie_bw += 0;
 			}
 		}
+	}
 		// qpc
 		// for DCT
 		if(!Settings::use_dct){
