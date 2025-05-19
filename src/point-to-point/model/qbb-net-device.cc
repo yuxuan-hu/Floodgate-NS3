@@ -398,6 +398,20 @@ namespace ns3 {
 					// for Weir
 					/*[Rate Limiter]*/
 					if(Settings::use_weir){
+						// std::cout<<"[Weir] qIndex: "<<qIndex<<std::endl;
+						// 这里 qIndex 有可能为 -1 ，因此需要加上高优先级队列的处理，否则会出现错误，类似于溢出那种的错误 SIGSEGV ，超出了 qIndex 的可选范围      
+						/*
+						Command ['/mnt/c/Users/DELL/Desktop/infocom2025/simulation/Floodgate-NS3/build/scratch/third', 
+						'mix/config-dcqcn.ini'] terminated with signal SIGSEGV. 
+						Run it under a debugger to get more information (./waf --run <program> --command-template="gdb --args %s <args>").
+						*/
+						if(qIndex == -1){
+							p = m_rdmaEQ->DequeueQindex(qIndex);
+							m_traceDequeue(p, 0);
+							// rnic cache mode
+							TransmitStartWithDelay(p, delay);
+							return;  // 直接返回，不考虑后续的时延
+						}
 						Ptr<RdmaQueuePair> lastQp = m_rdmaEQ->GetQp(qIndex);
 						if(lastQp->cur_rtt > lastQp->pre_rtt){	// Current RTT > Previous RTT => increase sending gap
 							uint64_t ActiveQpNum = m_rdmaEQ->total_active_qp_num;
